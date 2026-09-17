@@ -10,5 +10,11 @@
     "directory": "dist/client",
     "not_found_handling": "none",
     "binding": "ASSETS"
-  }
+  },
+  "routes": [
+    {
+      "pattern": "nexobd.pro",
+      "custom_domain": true
+    }
+  ]
 }
