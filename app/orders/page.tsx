@@ -1,0 +1,1 @@
+export default function OrdersPage() { return <main className="p-10">NexoBD orders workspace</main>; }

@@ -1,0 +1,1 @@
+export default function AdminPage() { return <main className="p-10">NexoBD admin workspace</main>; }

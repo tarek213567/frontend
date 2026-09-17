@@ -1,0 +1,1 @@
+export default function ProductsPage() { return <main className="p-10">NexoBD product catalog</main>; }
