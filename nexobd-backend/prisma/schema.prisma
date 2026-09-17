@@ -1,0 +1,210 @@
+generator client {
+  provider            = "prisma-client"
+  output              = "../src/prisma/generated"
+  moduleFormat        = "esm"
+  importFileExtension = "js"
+}
+
+datasource db {
+  provider     = "postgresql"
+  relationMode = "foreignKeys"
+}
+
+// Additional PostgreSQL CHECK constraints live in the init migration.
+// See DATABASE.md; use migrations rather than db push to retain them.
+
+enum Role {
+  CUSTOMER
+  ADMIN
+  SELLER
+}
+
+enum ProductStatus {
+  DRAFT
+  ACTIVE
+  ARCHIVED
+}
+
+enum PaymentMethod {
+  COD
+  BKASH
+  NAGAD
+  SSLCOMMERZ
+}
+
+enum PaymentStatus {
+  PENDING
+  PAID
+  FAILED
+  REFUNDED
+}
+
+enum OrderStatus {
+  PENDING
+  CONFIRMED
+  PROCESSING
+  SHIPPED
+  DELIVERED
+  CANCELLED
+}
+
+model User {
+  id           String        @id @default(uuid()) @db.Uuid
+  name         String        @db.VarChar(120)
+  email        String        @unique @db.VarChar(254)
+  phone        String?       @db.VarChar(20)
+  // bcrypt hash only; never a plaintext password or public response field.
+  password     String        @map("password_hash") @db.VarChar(60)
+  role         Role          @default(CUSTOMER)
+  avatar       String?       @db.Text
+  address      Json?         @db.JsonB
+  createdAt    DateTime      @default(now()) @db.Timestamptz(3)
+  updatedAt    DateTime      @updatedAt @db.Timestamptz(3)
+  cartItems    Cart[]
+  orders       Order[]
+  reviews      Review[]
+  sessions     AuthSession[]
+  soldProducts Product[]     @relation("SellerProducts")
+
+  @@index([role, createdAt])
+  @@map("users")
+}
+
+// One login/device session is one refresh-token family.
+model AuthSession {
+  id        String         @id @default(uuid()) @db.Uuid
+  userId    String         @db.Uuid
+  expiresAt DateTime       @db.Timestamptz(3)
+  revokedAt DateTime?      @db.Timestamptz(3)
+  createdAt DateTime       @default(now()) @db.Timestamptz(3)
+  user      User           @relation(fields: [userId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  tokens    RefreshToken[]
+
+  @@index([userId, revokedAt])
+  @@index([expiresAt])
+  @@map("auth_sessions")
+}
+
+model RefreshToken {
+  id        String      @id @default(uuid()) @db.Uuid
+  sessionId String      @db.Uuid
+  tokenHash String      @unique @db.Char(64)
+  usedAt    DateTime?   @db.Timestamptz(3)
+  createdAt DateTime    @default(now()) @db.Timestamptz(3)
+  session   AuthSession @relation(fields: [sessionId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+
+  @@index([sessionId])
+  @@map("refresh_tokens")
+}
+
+model Category {
+  id          String    @id @default(uuid()) @db.Uuid
+  name        String    @db.VarChar(120)
+  slug        String    @unique @db.VarChar(160)
+  image       String?   @db.Text
+  description String?   @db.Text
+  createdAt   DateTime  @default(now()) @db.Timestamptz(3)
+  updatedAt   DateTime  @updatedAt @db.Timestamptz(3)
+  products    Product[]
+
+  @@map("categories")
+}
+
+model Product {
+  id            String        @id @default(uuid()) @db.Uuid
+  name          String        @db.VarChar(200)
+  slug          String        @unique @db.VarChar(240)
+  description   String        @db.Text
+  price         Decimal       @db.Decimal(14, 2)
+  discountPrice Decimal?      @db.Decimal(14, 2)
+  stock         Int           @default(0)
+  brand         String?       @db.VarChar(120)
+  images        String[]      @default([])
+  status        ProductStatus @default(DRAFT)
+  categoryId    String        @db.Uuid
+  sellerId      String?       @db.Uuid
+  deletedAt     DateTime?     @db.Timestamptz(3)
+  version       Int           @default(0)
+  createdAt     DateTime      @default(now()) @db.Timestamptz(3)
+  updatedAt     DateTime      @updatedAt @db.Timestamptz(3)
+  category      Category      @relation(fields: [categoryId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  seller        User?         @relation("SellerProducts", fields: [sellerId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  cartItems     Cart[]
+  orderItems    OrderItem[]
+  reviews       Review[]
+
+  @@index([categoryId, status, createdAt])
+  @@index([status, createdAt])
+  @@index([status, stock])
+  @@index([sellerId, deletedAt, createdAt])
+  @@index([deletedAt, status, createdAt])
+  @@index([name(ops: raw("gin_trgm_ops"))], type: Gin, map: "products_name_trgm_idx")
+  @@index([description(ops: raw("gin_trgm_ops"))], type: Gin, map: "products_description_trgm_idx")
+  @@index([brand(ops: raw("gin_trgm_ops"))], type: Gin, map: "products_brand_trgm_idx")
+  @@map("products")
+}
+
+model Cart {
+  id        String   @id @default(uuid()) @db.Uuid
+  userId    String   @db.Uuid
+  productId String   @db.Uuid
+  quantity  Int      @default(1)
+  createdAt DateTime @default(now()) @db.Timestamptz(3)
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  product   Product  @relation(fields: [productId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+
+  @@unique([userId, productId])
+  @@index([productId])
+  @@map("cart_items")
+}
+
+model Order {
+  id              String        @id @default(uuid()) @db.Uuid
+  userId          String        @db.Uuid
+  totalAmount     Decimal       @db.Decimal(14, 2)
+  paymentMethod   PaymentMethod
+  paymentStatus   PaymentStatus @default(PENDING)
+  orderStatus     OrderStatus   @default(PENDING)
+  // Immutable checkout snapshot, independent of the user's current address.
+  shippingAddress Json          @db.JsonB
+  createdAt       DateTime      @default(now()) @db.Timestamptz(3)
+  updatedAt       DateTime      @updatedAt @db.Timestamptz(3)
+  user            User          @relation(fields: [userId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  items           OrderItem[]
+
+  @@index([userId, createdAt])
+  @@index([orderStatus, createdAt])
+  @@index([paymentStatus, createdAt])
+  @@map("orders")
+}
+
+model OrderItem {
+  id          String  @id @default(uuid()) @db.Uuid
+  orderId     String  @db.Uuid
+  productId   String  @db.Uuid
+  quantity    Int
+  // Unit price and name captured at checkout, independent of catalog edits.
+  price       Decimal @db.Decimal(14, 2)
+  productName String  @db.VarChar(200)
+  order       Order   @relation(fields: [orderId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  product     Product @relation(fields: [productId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+
+  @@unique([orderId, productId])
+  @@index([productId])
+  @@map("order_items")
+}
+
+model Review {
+  id        String   @id @default(uuid()) @db.Uuid
+  userId    String   @db.Uuid
+  productId String   @db.Uuid
+  rating    Int      @db.SmallInt
+  comment   String?  @db.Text
+  createdAt DateTime @default(now()) @db.Timestamptz(3)
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  product   Product  @relation(fields: [productId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+
+  @@unique([userId, productId])
+  @@index([productId, createdAt])
+  @@map("reviews")
+}

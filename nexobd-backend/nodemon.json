@@ -1,0 +1,7 @@
+{
+  "watch": ["src", ".env"],
+  "ignore": ["src/prisma/generated/**"],
+  "ext": "ts,json,env",
+  "exec": "tsx src/server.ts",
+  "signal": "SIGTERM"
+}
