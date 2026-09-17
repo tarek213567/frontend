@@ -1,49 +1,61 @@
-# NexoBD Cloudflare Deployment
+# NexoBD Cloudflare Workers Deployment
 
-## Cloudflare Pages
+## Local verification
 
-1. Open Cloudflare Dashboard > Workers & Pages.
-2. Remove the old Worker route `nexobd.pro/*` from Workers > Routes.
-3. Disconnect or delete the old Worker deployment after confirming no other routes depend on it.
-4. Create a new Pages project from `tarek213567/frontend`.
-5. Select branch `main`.
-6. Use these build settings:
-   - Framework preset: Next.js
-   - Build command: `npm run build`
-   - Build output directory: `.next`
-   - Node version: `20` or newer
-7. Add these production environment variables under Settings > Environment variables:
-   - `NEXT_PUBLIC_SUPABASE_URL`
-   - `NEXT_PUBLIC_SUPABASE_ANON_KEY`
-8. Deploy and review the Pages deployment logs.
+```powershell
+npm install
+npm run build
+npm run build:vinext
+npx wrangler deploy --config dist/server/wrangler.json --dry-run
+```
 
-## Custom Domain
+The Worker name is `nexobd`. Vinext emits the Worker bundle under `dist/server` and static assets under `dist/client`.
 
-1. Open the Pages project > Custom domains.
-2. Add `nexobd.pro`.
-3. Remove the old Worker custom-domain route before accepting the Pages domain assignment.
-4. Keep DNS proxied through Cloudflare when prompted.
-5. Wait for the certificate to become active.
+## Required environment variables
 
-## Verification
+Add these in Cloudflare Workers > Settings > Variables and Secrets:
+
+- `NEXT_PUBLIC_SUPABASE_URL`
+- `NEXT_PUBLIC_SUPABASE_ANON_KEY`
+
+Do not commit `.env.local` or secret values. `.env.example` contains names only.
+
+## Deploy a new Worker first
+
+1. Authenticate Wrangler locally with `npx wrangler login`, or use a configured Cloudflare API token.
+2. Run `npm run build:vinext`.
+3. Deploy the new Worker without any `nexobd.pro` route:
+
+   ```powershell
+   npx @vinext/cloudflare deploy --config dist/server/wrangler.json
+   ```
+
+4. Open the generated `https://nexobd.<account-subdomain>.workers.dev` URL.
+5. Verify `/`, `/products/nxd-001`, `/cart`, `/checkout`, `/admin/login`, static product images, and the 404 page.
+6. Do not delete or change the old Worker until this workers.dev deployment is verified.
+
+## Move `nexobd.pro` safely
+
+After the new Worker is verified:
+
+1. Open Cloudflare Dashboard > Workers & Pages > the new `nexobd` Worker.
+2. Add `nexobd.pro` under Settings > Domains & Routes as a custom domain.
+3. Remove the old Worker route `nexobd.pro/*` only after the new custom-domain binding is active.
+4. Confirm the old Worker has no remaining custom-domain binding or route for `nexobd.pro`.
+5. Keep DNS managed by Cloudflare and verify the certificate is active.
+6. Enable or confirm SSL/TLS mode is `Full (strict)` where the origin setup supports it.
+7. Test HTTPS, redirects, assets, product routes, cart, checkout, admin login, and an unknown URL.
+8. Retire the old Worker only after the new domain has passed all checks.
+
+## Verification commands
 
 ```powershell
 Invoke-WebRequest https://nexobd.pro -UseBasicParsing
 Resolve-DnsName nexobd.pro -Type A
 ```
 
-Verify manually:
-
-- `https://nexobd.pro` returns the NexoBD homepage.
-- HTTPS certificate is active and valid.
-- HTTP redirects to HTTPS once configured in SSL/TLS > Edge Certificates.
-- `/products/nxd-001` loads a product detail page.
-- `/cart`, `/checkout`, `/login`, and `/admin/login` load.
-- Unknown routes show the Next.js 404 page.
-- No old Worker response or redirect remains.
+Expected result: HTTPS returns `200`, DNS resolves through Cloudflare, no old Worker response remains, and HTTP redirects to HTTPS without loops.
 
 ## Supabase
 
-Run `supabase/schema.sql` in the target Supabase SQL editor before deploying. Create the `product-images` bucket and verify its public read policy or replace public URLs with signed URLs before production use.
-
-Never commit `.env.local`. Use `.env.example` as the variable-name template only.
+Run `supabase/schema.sql` in the target Supabase SQL editor before production use. Confirm the `product-images` bucket and its read policy are configured for the image URLs used by the application.
